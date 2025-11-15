@@ -1,7 +1,7 @@
 from random import random
 N_DIMENSIONAL_VECTOR = 4
 FILES = {1:'data.txt', 2:'runs.txt', 3:'out.txt'}
-RECORDS = 1673
+RECORDS = 20000
 VECTOR_DIMENSION_STR_LEN = 22
 
 def cmp(a, b):
@@ -250,7 +250,11 @@ def make_runs(fm):
     data_file = open(FILES[1], 'r')
     runs_file = open(FILES[2], 'w')
     runs = fm.n
-    records_per_run = RECORDS//runs + 1
+    records_per_run = fm.b*fm.n
+    runs = RECORDS/records_per_run
+    if runs != int(runs):
+        runs = int(runs) + 1
+    runs = int(runs)
     buffer = [None for _ in range(records_per_run)]
 
 
@@ -269,6 +273,25 @@ def make_runs(fm):
                 fm.run_pages[run_num].append(page_id)
         fm.dump(runs_file)
         buffer = [None for _ in range(records_per_run)]
+
+def merge_runs(fm, merging):
+    fm.setup_buffers()
+    runs_file = open(FILES[2], 'r')
+    out_file = open(FILES[3], 'a')
+    fm.load_buffers(runs_file, merging)
+
+
+
+def merge_all_runs(fm):
+    run_pages = []
+    merge_list = []
+    for i in range(len(fm.run_pages)):
+        if i % fm.n == 0:
+            merge_list.append([i])
+        else:
+            merge_list[i//fm.n].append(i)
+    print(fm.run_pages)
+    print(merge_list)
     
 def sort_runs(fm):
     fm.setup_buffers()
@@ -299,8 +322,10 @@ def test():
         last = dat
         
 
-test()
-# make_runs(fm)
+# test()
+create_file()
+make_runs(fm)
+merge_all_runs(fm)
 # sort_runs(fm)
     
 
