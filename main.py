@@ -1,4 +1,5 @@
 from random import random
+import os
 N_DIMENSIONAL_VECTOR = 4
 FILES = {1:'data.txt', 2:'runs.txt', 3:'out.txt'}
 RECORDS = 20000
@@ -136,13 +137,14 @@ class FileManager:
         self.buffers = []
         self.disk_reads = 0
         self.disk_writes = 0
-        self.read_buffer = Page()
-        self.write_buffer = Page()
+        self.read_buffer = Page(b)
+        self.write_buffer = Page(b)
         self.read_page = 0
         self.write_page = 0
         self.last_read_file = None
         self.last_write_file = None
         self.run_pages = []
+        self.new_run_pages = []
 
     def read(self, file, page_id = None):
         if self.last_read_file == None:
@@ -163,7 +165,7 @@ class FileManager:
             index, reading = file_index(page_id, self.b)
         file.seek(index)
         data = []
-        for i in range(10):
+        for i in range(self.b):
             line = file.readline()
             data.append(line)
         self.read_buffer.data_to_page(data)
@@ -175,13 +177,14 @@ class FileManager:
         if self.last_write_file != file:
             self.last_write_file = file
             self.write_page = 0
+        written = self.write_page
         
         self.write_buffer.write(record)
         if self.write_buffer.isFull():
             self.write_file(file)
             self.write_buffer.empty()
         
-        return self.write_page
+        return written
     
     def write_file(self, file = None):
         data = self.write_buffer.page_to_data()
@@ -199,18 +202,18 @@ class FileManager:
         self.write_buffer.empty()
 
     def setup_buffers(self):
-        self.buffers = [Page() for _ in range(self.n)]
+        self.buffers = [Page(self.b) for _ in range(self.n)]
     
-    def load_buffers(self, runs_file):
+    def load_buffers(self, runs_file, merging):
         self.read_buffer.empty()
-        for i in range(len(self.buffers)):
+        for i in range(len(merging)):
             buffer = self.buffers[i]
             if buffer.isEmpty():
-                if len(self.run_pages[i]):
-                    page_id = self.run_pages[i][0]
+                if len(self.run_pages[merging[i]]):
+                    page_id = self.run_pages[merging[i]][0]
                 else:
                     continue
-                self.run_pages[i].remove(page_id)
+                self.run_pages[merging[i]].remove(page_id)
                 data = []
                 for j in range(self.b):
                     record = self.read(runs_file, page_id)
@@ -274,24 +277,38 @@ def make_runs(fm):
         fm.dump(runs_file)
         buffer = [None for _ in range(records_per_run)]
 
-def merge_runs(fm, merging):
+def merge_runs(fm, merging, runs_file, out_file):
     fm.setup_buffers()
-    runs_file = open(FILES[2], 'r')
-    out_file = open(FILES[3], 'a')
     fm.load_buffers(runs_file, merging)
-
-
+    num = fm.get_smallest()
+    new_run_pages = []
+    while num != -1:
+        page_id = fm.write(out_file, num)
+        if page_id not in new_run_pages:
+            new_run_pages.append(page_id)
+        fm.load_buffers(runs_file, merging)
+        num = fm.get_smallest()
+    fm.dump(out_file)
+    return new_run_pages
 
 def merge_all_runs(fm):
     run_pages = []
     merge_list = []
+    runs_file = open(FILES[2], 'r')
+    out_file = open(FILES[3], 'w')
     for i in range(len(fm.run_pages)):
         if i % fm.n == 0:
             merge_list.append([i])
         else:
             merge_list[i//fm.n].append(i)
-    print(fm.run_pages)
-    print(merge_list)
+    new_run_pages = []
+    for i in range(len(merge_list)):
+        pages = merge_runs(fm, merge_list[i], runs_file, out_file)
+        new_run_pages.append(pages)
+    fm.run_pages = new_run_pages
+    os.remove(FILES[2])
+    os.rename(FILES[3], FILES[2])
+    return len(new_run_pages)
     
 def sort_runs(fm):
     fm.setup_buffers()
@@ -307,8 +324,7 @@ def sort_runs(fm):
         num = fm.get_smallest()
     fm.dump(out_file)
     
-
-def test():
+def test_if_sorted():
     data = []
     with open('out.txt', 'r') as f:
         line = f.readline()
@@ -320,13 +336,35 @@ def test():
         if dat < last:
             print("WRONGGGGGGG!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         last = dat
-        
 
-# test()
-create_file()
-make_runs(fm)
-merge_all_runs(fm)
-# sort_runs(fm)
+def file_contents(file_name):
+    with open(file_name, 'r') as f:
+        line = f.readline()
+        while line:
+            print(line, my_key(line))
+            line = f.readline()
+
+def test(n = 1000):
+    global RECORDS
+    RECORDS = n
+    create_file()
+    file_contents('data.txt')
+    fm = FileManager()
+    make_runs(fm)
+    n_runs = merge_all_runs(fm)
+    while n_runs != 1:
+        print(n_runs)
+        n_runs = merge_all_runs(fm)
+    os.rename(FILES[2], FILES[3])
+    print(n_runs)
+
+    file_contents('out.txt')
+    print(f'TOTAL DISK READS: {fm.disk_reads}')
+    print(f'TOTAL DISK WRITES: {fm.disk_writes}')
+
+test(100000)
+
+
     
 
 
