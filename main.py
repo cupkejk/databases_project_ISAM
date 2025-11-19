@@ -362,7 +362,7 @@ def test(n = 1000):
     print(f'TOTAL DISK READS: {fm.disk_reads}')
     print(f'TOTAL DISK WRITES: {fm.disk_writes}')
 
-test(100000)
+test(10000)
 
 
     
