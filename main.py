@@ -247,8 +247,6 @@ def create_file():
             vec.random()
             f.write(str(vec) + '\n')
 
-fm = FileManager()
-
 def make_runs(fm):
     data_file = open(FILES[1], 'r')
     runs_file = open(FILES[2], 'w')
@@ -276,6 +274,8 @@ def make_runs(fm):
                 fm.run_pages[run_num].append(page_id)
         fm.dump(runs_file)
         buffer = [None for _ in range(records_per_run)]
+    
+    return len(fm.run_pages)
 
 def merge_runs(fm, merging, runs_file, out_file):
     fm.setup_buffers()
@@ -350,8 +350,8 @@ def test(n = 1000):
     create_file()
     file_contents('data.txt')
     fm = FileManager()
-    make_runs(fm)
-    n_runs = merge_all_runs(fm)
+    n_runs = make_runs(fm)
+    print(n_runs)
     while n_runs != 1:
         print(n_runs)
         n_runs = merge_all_runs(fm)
