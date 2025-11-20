@@ -5,6 +5,7 @@ N_DIMENSIONAL_VECTOR = 4
 FILES = {1:'data.txt', 2:'runs.txt', 3:'out.txt'}
 RECORDS = 20000
 VECTOR_DIMENSION_STR_LEN = 22
+EMPTY_VECTOR = (((('-'*VECTOR_DIMENSION_STR_LEN) + ' ')) * (N_DIMENSIONAL_VECTOR - 1)) + '-'*VECTOR_DIMENSION_STR_LEN
 
 def cmp(a, b):
     vec_a = Vector()
@@ -46,14 +47,14 @@ class Vector:
 
     def __str__(self):
         if self.vec[0] == None:
-            return (((('-'*VECTOR_DIMENSION_STR_LEN) + ' ')) * (N_DIMENSIONAL_VECTOR - 1)) + '-'*VECTOR_DIMENSION_STR_LEN
+            return EMPTY_VECTOR
         vec_str = ''
         for i in range(N_DIMENSIONAL_VECTOR):
             vec_str += f'{float(self.vec[i]):{VECTOR_DIMENSION_STR_LEN}.{VECTOR_DIMENSION_STR_LEN//2}f}' + ' ' 
         return vec_str[0:-1]
 
     def from_str(self, text):
-        if not text or text == '\n' or text == (((('-'*VECTOR_DIMENSION_STR_LEN) + ' ')) * (N_DIMENSIONAL_VECTOR - 1)) + '-'*VECTOR_DIMENSION_STR_LEN+'\n':
+        if not text or text == '\n' or text == EMPTY_VECTOR+'\n':
             self.vec = [None for _ in range(N_DIMENSIONAL_VECTOR)]
             return
         for i in range(N_DIMENSIONAL_VECTOR):
@@ -270,6 +271,7 @@ def make_runs(fm):
             i += 1
         buffer = sorted(buffer, key = my_key)
         for item in buffer:
+            if item == EMPTY_VECTOR+'\n': break
             page_id = fm.write(runs_file, item)
             if page_id not in fm.run_pages[run_num]:
                 fm.run_pages[run_num].append(page_id)
@@ -345,6 +347,36 @@ def file_contents(file_name):
         while line:
             print(line, my_key(line))
             line = f.readline()
+
+def from_keyboard():
+    vec_str = input("")
+    if vec_str == 'q': return vec_str
+    vec = Vector()
+    vec.from_str(vec_str)
+    return vec
+
+def create_file_choose():
+    global RECORDS
+    print("How do you want to generate the data for sorting?\n1. From keyboard\n2. Automatically")
+    option = input()
+    while int(option) != 1 and int(option) != 2:
+        print("INCORRECT OPTION! CHOOSE AGAIN:")
+        option = input()
+    
+    if int(option) == 1:
+        RECORDS = 0
+        print("write a 4-dimensional vector. (example: -10.8 0.444 1.2 10.83):")
+        print("(when u wanna stop adding vectors just write \"q\")")
+        with open('data.txt', 'w') as f:
+            vec = from_keyboard()
+            while vec != 'q':
+                RECORDS += 1
+                f.write(str(vec) + '\n')
+                vec = from_keyboard()
+
+    else:
+        create_file()
+
 
 def test(n = 1000):
     global RECORDS
