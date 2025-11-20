@@ -1,5 +1,6 @@
 from random import random
 import os
+import math
 N_DIMENSIONAL_VECTOR = 4
 FILES = {1:'data.txt', 2:'runs.txt', 3:'out.txt'}
 RECORDS = 20000
@@ -302,6 +303,7 @@ def merge_all_runs(fm):
         else:
             merge_list[i//fm.n].append(i)
     new_run_pages = []
+    print(merge_list)
     for i in range(len(merge_list)):
         pages = merge_runs(fm, merge_list[i], runs_file, out_file)
         new_run_pages.append(pages)
@@ -348,21 +350,35 @@ def test(n = 1000):
     global RECORDS
     RECORDS = n
     create_file()
-    file_contents('data.txt')
-    fm = FileManager()
+    # file_contents('data.txt')
+    fm = FileManager(b = 10, n = 100)
     n_runs = make_runs(fm)
+    stages = 0
     print(n_runs)
     while n_runs != 1:
         print(n_runs)
+        stages += 1
         n_runs = merge_all_runs(fm)
     os.rename(FILES[2], FILES[3])
     print(n_runs)
 
-    file_contents('out.txt')
+    # file_contents('out.txt')
     print(f'TOTAL DISK READS: {fm.disk_reads}')
     print(f'TOTAL DISK WRITES: {fm.disk_writes}')
+    print(f'TOTAL COST: {fm.disk_reads + fm.disk_writes}')
+    theoretical = round(2*(RECORDS/(fm.b*math.log(fm.n, 2)))*math.log(RECORDS/fm.b, 2))
+    print(f'THEORETICAL COST: {theoretical}')
+    print(f'TOTAL STAGES OF SORTING: {stages}')
+    print(f'THEORETICAL NUMBER OF STAGES: {math.ceil(math.log(RECORDS/fm.b, fm.n))-1}')
+    return [fm.disk_reads + fm.disk_writes, theoretical]
 
-test(10000)
+records = [100, 1000, 5000, 20000, 100000]
+costs = []
+
+for i in range(5):
+    costs.append(test(10**(i+2)))
+
+print(costs)
 
 
     
