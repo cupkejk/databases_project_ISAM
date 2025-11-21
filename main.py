@@ -243,9 +243,11 @@ class FileManager:
 
 
             
-def create_file():
+def create_file(n):
+    global RECORDS
+    RECORDS = n
     vec = Vector()
-    with open('data.txt', 'w') as f:
+    with open(FILES[1], 'w') as f:
         for i in range(RECORDS):
             vec.random()
             f.write(str(vec) + '\n')
@@ -266,19 +268,28 @@ def make_runs(fm):
         fm.run_pages.append([])
 
         i = 0
-        while i < records_per_run:
-            record = fm.read(data_file)
+        record = fm.read(data_file)
+        while i < records_per_run and record != EMPTY_VECTOR + '\n' and record != EMPTY_VECTOR:
+            if i == 89 and run_num == 0:
+                pass
             buffer[i] = record
             i += 1
+            if i < records_per_run: record = fm.read(data_file)
         buffer = sorted(buffer, key = my_key)
+        i = 0
         for item in buffer:
-            if item == EMPTY_VECTOR+'\n': break
+            if i == 89 and run_num == 9:
+                pass
+            i+=1
+            if item == EMPTY_VECTOR+'\n' or item == EMPTY_VECTOR or item == None: break
             page_id = fm.write(runs_file, item)
             if page_id not in fm.run_pages[run_num]:
                 fm.run_pages[run_num].append(page_id)
         fm.dump(runs_file)
         buffer = [None for _ in range(records_per_run)]
     
+    data_file.close()
+    runs_file.close()
     return len(fm.run_pages)
 
 def merge_runs(fm, merging, runs_file, out_file):
@@ -306,11 +317,12 @@ def merge_all_runs(fm):
         else:
             merge_list[i//fm.n].append(i)
     new_run_pages = []
-    print(merge_list)
     for i in range(len(merge_list)):
         pages = merge_runs(fm, merge_list[i], runs_file, out_file)
         new_run_pages.append(pages)
     fm.run_pages = new_run_pages
+    runs_file.close()
+    out_file.close()
     os.remove(FILES[2])
     os.rename(FILES[3], FILES[2])
     return len(new_run_pages)
@@ -321,13 +333,13 @@ def sort_runs(fm):
     out_file = open(FILES[3], 'w')
     fm.load_buffers(runs_file)
     num = fm.get_smallest()
-    print(num)
     while num != -1:
-        print(num)
         fm.write(out_file, num)
         fm.load_buffers(runs_file)
         num = fm.get_smallest()
     fm.dump(out_file)
+    runs_file.close()
+    out_file.close()
     
 def test_if_sorted():
     data = []
@@ -344,10 +356,8 @@ def test_if_sorted():
 
 def file_contents(file_name):
     with open(file_name, 'r') as f:
-        line = f.readline()
-        while line:
-            print(line, my_key(line))
-            line = f.readline()
+        file = f.read()
+        print(file)
 
 def from_keyboard():
     vec_str = input("")
@@ -358,9 +368,9 @@ def from_keyboard():
 
 def create_file_choose():
     global RECORDS
-    print("How do you want to generate the data for sorting?\n1. From keyboard\n2. Automatically")
+    print("How do you want to generate the data for sorting?\n1. From keyboard\n2. Automatically\n3. Get them from a file")
     option = input()
-    while int(option) != 1 and int(option) != 2:
+    while int(option) != 1 and int(option) != 2 and int(option) != 3:
         print("INCORRECT OPTION! CHOOSE AGAIN:")
         option = input()
     
@@ -368,34 +378,66 @@ def create_file_choose():
         RECORDS = 0
         print("write a 4-dimensional vector. (example: -10.8 0.444 1.2 10.83):")
         print("(when u wanna stop adding vectors just write \"q\")")
-        with open('data.txt', 'w') as f:
+        with open(FILES[1], 'w') as f:
             vec = from_keyboard()
             while vec != 'q':
                 RECORDS += 1
                 f.write(str(vec) + '\n')
                 vec = from_keyboard()
-
+    elif int(option) == 2:
+        print("How much records do you wanna generate?:")
+        n_records = int(input())
+        create_file(n_records)
     else:
-        create_file()
+        print("Type the name of the file:")
+        file_name = input()
+        FILES[1] = file_name
+        RECORDS = 0
+        with open(FILES[1], 'r') as f:
+            line = f.readline()
+            while line:
+                RECORDS += 1
+                line = f.readline()
 
+def single_sorting():
+    global RECORDS
+    create_file_choose()
+    print('File contents before sorting:')
+    file_contents(FILES[1])
+    fm = FileManager(b = 10, n = 10)
+    n_runs = make_runs(fm)
+    stages = 0
+    while n_runs != 1:
+        stages += 1
+        n_runs = merge_all_runs(fm)
+        print(f'File contents after stage {stages}:')
+        file_contents(FILES[2])
+    os.rename(FILES[2], FILES[3])
+
+    print('File contents after sorting:')
+    file_contents(FILES[3])
+    print(f'NUMBER OF RECORDS: {RECORDS}')
+    print(f'TOTAL DISK READS: {fm.disk_reads}')
+    print(f'TOTAL DISK WRITES: {fm.disk_writes}')
+    print(f'TOTAL COST: {fm.disk_reads + fm.disk_writes}')
+    theoretical = round(2*(RECORDS/(fm.b*math.log(fm.n, 2)))*math.log(RECORDS/fm.b, 2))
+    print(f'THEORETICAL COST: {theoretical}')
+    print(f'TOTAL STAGES OF SORTING: {stages}')
+    print(f'THEORETICAL NUMBER OF STAGES: {math.ceil(math.log(RECORDS/fm.b, fm.n))-1}')
 
 def test(n = 1000):
     global RECORDS
     RECORDS = n
-    create_file()
-    # file_contents('data.txt')
+    create_file(n)
     fm = FileManager(b = 10, n = 10)
     n_runs = make_runs(fm)
     stages = 0
-    print(n_runs)
     while n_runs != 1:
-        print(n_runs)
         stages += 1
         n_runs = merge_all_runs(fm)
     os.rename(FILES[2], FILES[3])
-    print(n_runs)
 
-    # file_contents('out.txt')
+    print(f'NUMBER OF RECORDS: {RECORDS}')
     print(f'TOTAL DISK READS: {fm.disk_reads}')
     print(f'TOTAL DISK WRITES: {fm.disk_writes}')
     print(f'TOTAL COST: {fm.disk_reads + fm.disk_writes}')
@@ -405,27 +447,28 @@ def test(n = 1000):
     print(f'THEORETICAL NUMBER OF STAGES: {math.ceil(math.log(RECORDS/fm.b, fm.n))-1}')
     return [fm.disk_reads + fm.disk_writes, theoretical]
 
-records = [100, 1000, 5000, 20000, 50000]
-costs = []
+def tests():
+    records = [100, 1000, 5000, 20000, 50000]
+    costs = []
 
-for record_n in records:
-    cost = test(record_n)
-    costs.append([record_n, cost[0], cost[1]])
+    for record_n in records:
+        cost = test(record_n)
+        costs.append([record_n, cost[0], cost[1]])
+    
+    y = [cost[0] for cost in costs]
+    x1 = [cost[1] for cost in costs]
+    x2 = [cost[2] for cost in costs]
 
-y = [cost[0] for cost in costs]
-x1 = [cost[1] for cost in costs]
-x2 = [cost[2] for cost in costs]
+    fix, ax = plt.subplots()
+    plt.title('Cost vs Number of Records')
 
-fix, ax = plt.subplots()
-plt.title('Cost vs Number of Records')
+    ax.plot(x1, y, label = 'Actual')
+    ax.plot(x2, y, label = 'Theoretical')
 
-ax.plot(x1, y, label = 'Actual')
-ax.plot(x2, y, label = 'Theoretical')
+    plt.xlabel('Cost')
+    plt.ylabel('Number of Records')
+    plt.grid(True, linestyle=':', alpha=0.7)
+    plt.legend()
+    plt.tight_layout()
 
-plt.xlabel('Cost')
-plt.ylabel('Number of Records')
-plt.grid(True, linestyle=':', alpha=0.7)
-plt.legend()
-plt.tight_layout()
-
-plt.show()
+    plt.show()
