@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 from random import random
 import os
 import math
@@ -383,7 +384,7 @@ def test(n = 1000):
     RECORDS = n
     create_file()
     # file_contents('data.txt')
-    fm = FileManager(b = 10, n = 100)
+    fm = FileManager(b = 10, n = 10)
     n_runs = make_runs(fm)
     stages = 0
     print(n_runs)
@@ -404,15 +405,27 @@ def test(n = 1000):
     print(f'THEORETICAL NUMBER OF STAGES: {math.ceil(math.log(RECORDS/fm.b, fm.n))-1}')
     return [fm.disk_reads + fm.disk_writes, theoretical]
 
-records = [100, 1000, 5000, 20000, 100000]
+records = [100, 1000, 5000, 20000, 50000]
 costs = []
 
-for i in range(5):
-    costs.append(test(10**(i+2)))
+for record_n in records:
+    cost = test(record_n)
+    costs.append([record_n, cost[0], cost[1]])
 
-print(costs)
+y = [cost[0] for cost in costs]
+x1 = [cost[1] for cost in costs]
+x2 = [cost[2] for cost in costs]
 
+fix, ax = plt.subplots()
+plt.title('Cost vs Number of Records')
 
-    
+ax.plot(x1, y, label = 'Actual')
+ax.plot(x2, y, label = 'Theoretical')
 
+plt.xlabel('Cost')
+plt.ylabel('Number of Records')
+plt.grid(True, linestyle=':', alpha=0.7)
+plt.legend()
+plt.tight_layout()
 
+plt.show()
