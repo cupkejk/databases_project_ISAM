@@ -1,52 +1,52 @@
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # biblioteka do wykresow
 from random import random
 import os
 import math
-N_DIMENSIONAL_VECTOR = 4
-FILES = {1:'data.txt', 2:'runs.txt', 3:'out.txt'}
-RECORDS = 20000
-VECTOR_DIMENSION_STR_LEN = 22
+N_DIMENSIONAL_VECTOR = 4  # wymiar wektora danych
+FILES = {1:'data.txt', 2:'runs.txt', 3:'out.txt'}  # nazwy plikow roboczych
+RECORDS = 20000  # domyslna liczba rekordow
+VECTOR_DIMENSION_STR_LEN = 22  # dlugosc pola tekstowego
 EMPTY_VECTOR = (((('-'*VECTOR_DIMENSION_STR_LEN) + ' ')) * (N_DIMENSIONAL_VECTOR - 1)) + '-'*VECTOR_DIMENSION_STR_LEN
 
-def cmp(a, b):
+def cmp(a, b):  # funkcja porownujaca wektory
     vec_a = Vector()
     vec_a.from_str(a)
     vec_b = Vector()
     vec_b.from_str(b)
-    a_mag = vec_a.mag()
-    b_mag = vec_b.mag()
+    a_mag = vec_a.mag()  # pobranie dlugosci a
+    b_mag = vec_b.mag()  # pobranie dlugosci b
     if a_mag > b_mag: return 1
     elif a_mag < b_mag: return -1
     else: return 0
 
-def my_key(a):
+def my_key(a):  # klucz sortowania
     vec_a = Vector()
     vec_a.from_str(a)
-    return vec_a.mag()
+    return vec_a.mag()  # zwraca dlugosc wektora
 
-def str_to_vec(text):
+def str_to_vec(text):  # konwersja string na obiekt
     vec = Vector()
     vec.from_str(text)
     return vec
 
-def random_vec():
+def random_vec():  # generuje losowy wektor
     vec = Vector()
     vec.random()
     return vec
 
-def file_index(page_id, b):
+def file_index(page_id, b):  # oblicza offset w pliku
     start = page_id*b*(N_DIMENSIONAL_VECTOR*VECTOR_DIMENSION_STR_LEN+N_DIMENSIONAL_VECTOR)
     reading = b*8
     return start, reading
 
-class Vector:
+class Vector:  # klasa reprezentujaca wektor
     def __init__(self):
         self.vec = [None for _ in range(N_DIMENSIONAL_VECTOR)]
     
-    def random(self):
+    def random(self):  # losowanie skladowych
         self.vec = [(random()-0.5)*100 for _ in range(N_DIMENSIONAL_VECTOR)]
 
-    def __str__(self):
+    def __str__(self):  # reprezentacja tekstowa
         if self.vec[0] == None:
             return EMPTY_VECTOR
         vec_str = ''
@@ -54,17 +54,17 @@ class Vector:
             vec_str += f'{float(self.vec[i]):{VECTOR_DIMENSION_STR_LEN}.{VECTOR_DIMENSION_STR_LEN//2}f}' + ' ' 
         return vec_str[0:-1]
 
-    def from_str(self, text):
+    def from_str(self, text):  # parsowanie ze stringa
         if not text or text == '\n' or text == EMPTY_VECTOR+'\n':
             self.vec = [None for _ in range(N_DIMENSIONAL_VECTOR)]
             return
         for i in range(N_DIMENSIONAL_VECTOR):
             self.vec = [float(str) for str in text.strip().split()]
     
-    def empty(self):
+    def empty(self):  # czyszczenie wektora
         self.vec = [None for _ in range(N_DIMENSIONAL_VECTOR)]
     
-    def mag(self):
+    def mag(self):  # obliczanie dlugosci euklidesowej
         if self.vec[0] == None:
             return float('inf')
         sum = 0
@@ -75,15 +75,15 @@ class Vector:
 
 
 
-class Page:
+class Page:  # klasa strony w pamieci
     def __init__(self, b = 10):
-        self.b = b
+        self.b = b  # rozmiar bufora
         self.records = [Vector() for _ in range(self.b)]
         self.n_records = 0
         self.is_empty = True
         self.index = 0
 
-    def read(self):
+    def read(self):  # odczyt rekordu ze strony
         if str(self.records[self.index]) == '': return ''
         ret = str(self.records[self.index]) + '\n'
         self.index += 1
@@ -92,28 +92,28 @@ class Page:
             self.index = 0
         return ret
     
-    def get(self):
+    def get(self):  # podglad rekordu
         return str(self.records[self.index]) + '\n'
     
-    def write(self, record):
+    def write(self, record):  # zapis do strony
         self.records[self.n_records].from_str(record)
         self.n_records+=1
     
-    def isFull(self):
+    def isFull(self):  # czy strona pelna
         if self.n_records >= self.b: return True
         return False
     
-    def isEmpty(self):
+    def isEmpty(self):  # czy strona pusta
         return self.is_empty
     
-    def empty(self):
+    def empty(self):  # czyszczenie strony
         self.n_records = 0
         self.is_empty = True
         self.index = 0
         for i in range(len(self.records)):
             self.records[i].empty()
 
-    def data_to_page(self, data):
+    def data_to_page(self, data):  # zaladowanie danych z listy
         record = data[0]
         i = 0
         while i < self.b and record:
@@ -126,20 +126,20 @@ class Page:
         self.is_empty = False
         self.index = 0
     
-    def page_to_data(self):
+    def page_to_data(self):  # zrzut strony do listy
         data = []
         for i in range(len(self.records)):
             record = str(self.records[i]) + '\n'
             data.append(record)
         return data
 
-class FileManager:
+class FileManager:  # zarzadzanie plikami i buforami
     def __init__(self, b = 10, n = 10):
         self.b = b
         self.n = n
         self.buffers = []
-        self.disk_reads = 0
-        self.disk_writes = 0
+        self.disk_reads = 0  # licznik odczytow
+        self.disk_writes = 0  # licznik zapisow
         self.read_buffer = Page(b)
         self.write_buffer = Page(b)
         self.read_page = 0
@@ -149,7 +149,7 @@ class FileManager:
         self.run_pages = []
         self.new_run_pages = []
 
-    def read(self, file, page_id = None):
+    def read(self, file, page_id = None):  # odczyt logiczny
         if self.last_read_file == None:
             self.last_read_file = file
         if self.last_read_file != file:
@@ -160,8 +160,8 @@ class FileManager:
         self.read_file(file, page_id)
         return self.read_buffer.read()
 
-    def read_file(self, file, page_id = None):
-        self.disk_reads += 1
+    def read_file(self, file, page_id = None):  # odczyt fizyczny z dysku
+        self.disk_reads += 1  # inkrementacja odczytow
         if page_id == None:
             index, reading = file_index(self.read_page, self.b)
         else:
@@ -174,7 +174,7 @@ class FileManager:
         self.read_buffer.data_to_page(data)
         self.read_page += 1
     
-    def write(self, file, record):
+    def write(self, file, record):  # zapis logiczny
         if self.last_write_file == None:
             self.last_write_file = file
         if self.last_write_file != file:
@@ -189,25 +189,25 @@ class FileManager:
         
         return written
     
-    def write_file(self, file = None):
+    def write_file(self, file = None):  # zapis fizyczny na dysk
         data = self.write_buffer.page_to_data()
         if file == None:
             return data
-        self.disk_writes += 1
+        self.disk_writes += 1  # inkrementacja zapisow
         self.write_page += 1
         for record in data:
             file.write(record)
     
-    def dump(self, file = None):
+    def dump(self, file = None):  # oproznienie bufora zapisu
         if self.write_buffer.records[0].vec[0] != None:
             self.write_file(file)
         else: return self.write_file()
         self.write_buffer.empty()
 
-    def setup_buffers(self):
+    def setup_buffers(self):  # przygotowanie buforow
         self.buffers = [Page(self.b) for _ in range(self.n)]
     
-    def load_buffers(self, runs_file, merging):
+    def load_buffers(self, runs_file, merging):  # ladowanie serii do buforow
         self.read_buffer.empty()
         for i in range(len(merging)):
             buffer = self.buffers[i]
@@ -223,7 +223,7 @@ class FileManager:
                     data.append(record)
                 buffer.data_to_page(data)
     
-    def get_smallest(self):
+    def get_smallest(self):  # wybiera najmniejszy element
         smallest_index = -1
         smallest_mag = float('inf')
         for i in range(len(self.buffers)):
@@ -243,7 +243,7 @@ class FileManager:
 
 
             
-def create_file(n):
+def create_file(n):  # generowanie pliku danych
     global RECORDS
     RECORDS = n
     vec = Vector()
@@ -252,7 +252,7 @@ def create_file(n):
             vec.random()
             f.write(str(vec) + '\n')
 
-def make_runs(fm):
+def make_runs(fm):  # tworzenie serii poczatkowych
     data_file = open(FILES[1], 'r')
     runs_file = open(FILES[2], 'w')
     runs = fm.n
@@ -275,7 +275,7 @@ def make_runs(fm):
             buffer[i] = record
             i += 1
             if i < records_per_run: record = fm.read(data_file)
-        buffer = sorted(buffer, key = my_key)
+        buffer = sorted(buffer, key = my_key)  # sortowanie w pamieci
         i = 0
         for item in buffer:
             if i == 89 and run_num == 9:
@@ -292,7 +292,7 @@ def make_runs(fm):
     runs_file.close()
     return len(fm.run_pages)
 
-def merge_runs(fm, merging, runs_file, out_file):
+def merge_runs(fm, merging, runs_file, out_file):  # scalanie pojedynczej grupy
     fm.setup_buffers()
     fm.load_buffers(runs_file, merging)
     num = fm.get_smallest()
@@ -306,7 +306,7 @@ def merge_runs(fm, merging, runs_file, out_file):
     fm.dump(out_file)
     return new_run_pages
 
-def merge_all_runs(fm):
+def merge_all_runs(fm):  # glowna petla scalania runów
     run_pages = []
     merge_list = []
     runs_file = open(FILES[2], 'r')
@@ -327,7 +327,7 @@ def merge_all_runs(fm):
     os.rename(FILES[3], FILES[2])
     return len(new_run_pages)
     
-def sort_runs(fm):
+def sort_runs(fm):  # alternatywne sortowanie
     fm.setup_buffers()
     runs_file = open(FILES[2], 'r')
     out_file = open(FILES[3], 'w')
@@ -341,7 +341,7 @@ def sort_runs(fm):
     runs_file.close()
     out_file.close()
     
-def test_if_sorted():
+def test_if_sorted():  # weryfikacja wyniku
     data = []
     with open('out.txt', 'r') as f:
         line = f.readline()
@@ -354,19 +354,19 @@ def test_if_sorted():
             print("WRONGGGGGGG!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         last = dat
 
-def file_contents(file_name):
+def file_contents(file_name):  # wyswietla zawartosc pliku
     with open(file_name, 'r') as f:
         file = f.read()
         print(file)
 
-def from_keyboard():
+def from_keyboard():  # odczyt z klawiatury
     vec_str = input("")
     if vec_str == 'q': return vec_str
     vec = Vector()
     vec.from_str(vec_str)
     return vec
 
-def create_file_choose():
+def create_file_choose():  # menu wyboru danych
     global RECORDS
     print("How do you want to generate the data for sorting?\n1. From keyboard\n2. Automatically\n3. Get them from a file")
     option = input()
@@ -399,7 +399,7 @@ def create_file_choose():
                 RECORDS += 1
                 line = f.readline()
 
-def single_sorting():
+def single_sorting():  # uruchomienie sortowania
     global RECORDS
     create_file_choose()
     print('File contents before sorting:')
@@ -425,7 +425,7 @@ def single_sorting():
     print(f'TOTAL STAGES OF SORTING: {stages}')
     print(f'THEORETICAL NUMBER OF STAGES: {math.ceil(math.log(RECORDS/fm.b, fm.n))-1}')
 
-def test(n = 1000):
+def test(n = 1000):  # funkcja testowa
     global RECORDS
     RECORDS = n
     create_file(n)
@@ -445,9 +445,10 @@ def test(n = 1000):
     print(f'THEORETICAL COST: {theoretical}')
     print(f'TOTAL STAGES OF SORTING: {stages}')
     print(f'THEORETICAL NUMBER OF STAGES: {math.ceil(math.log(RECORDS/fm.b, fm.n))-1}')
+    print()
     return [fm.disk_reads + fm.disk_writes, theoretical]
 
-def tests():
+def tests():  # generowanie wykresow
     records = [100, 1000, 5000, 20000, 50000]
     costs = []
 
