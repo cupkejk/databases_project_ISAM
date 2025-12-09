@@ -344,6 +344,14 @@ class Manager:
             data.append(self.data_file.readline())
         self.adding_page.data_to_page(data)
     
+    def get_page_from_file(self, page_num, file, page):
+        i = self.for_seek(page_num)
+        file.seek(i)
+        data = []
+        for i in range(b):
+            data.append(file.readline())
+        page.data_to_page(data)
+    
     def get_overflow_page(self, page):
         i = self.for_seek(page)
         self.overflow_file.seek(i)
@@ -386,6 +394,33 @@ class Manager:
     
     def push_overflow(self):
         self.save_overflow_page(self.overflow_page_num)
+    
+    def reorganize(self):
+        old_data_file = self.data_file
+        self.data_file = open('new_data.txt', 'w+')
+        old_index_file = self.index_file
+        self.index_file = open('new_index.txt', 'w+')
+        reading_page_num = 0
+        reading_rec_num = 0
+
+        temp_adding_page = Page()
+        self.get_page_from_file(reading_page_num, old_data_file, temp_adding_page)
+        rec = temp_adding_page.recs[reading_rec_num]
+
+        while rec != None:
+            while rec.overflow != None:
+                self.add(rec.key)
+                #add something here
+
+            reading_rec_num += 1
+            if reading_rec_num == 10:
+                reading_rec_num = 0
+                reading_page_num += 1
+                self.get_page_from_file(reading_page_num, old_data_file, temp_adding_page)
+            
+            rec = temp_adding_page.recs[reading_rec_num]
+
+
 
 m = Manager()
 m.add(0)
