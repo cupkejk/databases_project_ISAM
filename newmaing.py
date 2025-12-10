@@ -80,10 +80,9 @@ class Page:
     
     def data_to_page(self, data):
         self.recs = []
-        if data[0] == '': return
+        if not data or data[0] == '': return
         for line in data:
             if line == '' or line[0] == '-': 
-                #self.recs.append(None)
                 continue
             rec = Record(0)
             rec.str_to_rec(line)
@@ -125,7 +124,7 @@ class IndexPage:
     
     def data_to_page(self, data):
         self.recs = []
-        if data[0] == '': return 
+        if not data or data[0] == '': return 
         for line in data:
             if line == '' or line[0] == '-': continue
             rec = IndexRecord(None, None)
@@ -196,7 +195,7 @@ class Manager:
     def for_seek_index(self, page):
         return 18*b*page
     
-    def add(self, rec_key):
+    def add(self, rec_key, limit=b):
         rec = Record(rec_key)
         rec.random(rec_key, None)
         page, does_next_exist = self.page_to_append(rec)
@@ -204,7 +203,8 @@ class Manager:
             self.save_page(self.adding_page_num)
             self.adding_page_num = page
             self.get_page(self.adding_page_num)
-        if self.adding_page.len() == b:
+        
+        if self.adding_page.len() >= limit:
             if does_next_exist:
                 self.add_overflow(rec)
                 return
@@ -216,12 +216,14 @@ class Manager:
                 self.adding_page_num = page + 1
                 self.get_page(self.adding_page_num)
                 self.adding_pages += 1
+        
         if self.adding_page.len() == 0:
             self.add_index(rec.key, self.adding_page_num)
+        
         if self.adding_page.add(rec, NORMAL) == -1:
             self.add_overflow(rec)
         
-        if self.overflow_pages == 4: self.reorganize()
+        if self.overflow_pages >= 4: self.reorganize()
     
     def add_overflow(self, rec):
         overflow, overflow_rec = self.get_overflow_from_rec(rec)
@@ -270,11 +272,9 @@ class Manager:
                     self.overflow_pages += 1
         self.adding_to_overflow += 1
 
-
     def get_page_from_overflow(self, overflow):
         return overflow//b
             
-    
     def get_overflow_from_rec_from_overflow(self, overflow, reorganizing):
         overflow_page = overflow//b
         overflow_index = overflow%b
@@ -345,8 +345,6 @@ class Manager:
         if self.temp_index_num == 0:
             pass
         if self.index_page.len() > self.temp_index_num:
-            if self.index_page.len() == 1:
-                pass
             rec = self.index_page.recs[self.temp_index_num]
         else:
             return None
@@ -377,9 +375,30 @@ class Manager:
         file.seek(i)
         data = []
         for i in range(b):
-            data.append(file.readline())
+            line = file.readline()
+            if not line: break
+            data.append(line)
+        while len(data) < b:
+            data.append('')
         page.data_to_page(data)
     
+    def get_old_overflow_rec(self, overflow_ptr, file_handle):
+        page = overflow_ptr // b
+        idx = overflow_ptr % b
+        
+        seek_pos = self.for_seek(page)
+        file_handle.seek(seek_pos)
+        
+        lines = []
+        for _ in range(b):
+            lines.append(file_handle.readline())
+        
+        temp_page = Page()
+        temp_page.data_to_page(lines)
+        if idx < len(temp_page.recs):
+            return temp_page.recs[idx]
+        return None
+
     def get_overflow_page(self, page):
         i = self.for_seek(page)
         self.overflow_file.seek(i)
@@ -390,8 +409,7 @@ class Manager:
     
     def save_overflow_page(self, page):
         data = self.overflow_page.page_to_data()
-        for line in data:
-            i = self.for_seek(page)
+        i = self.for_seek(page)
         self.overflow_file.seek(i)
         for line in data:
             self.overflow_file.write(line)
@@ -427,11 +445,14 @@ class Manager:
     def reorganize(self):
         self.push()
         old_data_file = self.data_file
+        old_overflow_handle = open('overflow.txt', 'r')
+        
         self.data_file = open('new_data.txt', 'w+')
-        old_index_file = self.index_file
         self.index_file = open('new_index.txt', 'w+')
+        self.overflow_file = open('new_overflow.txt', 'w+')
+
         reading_page_num = 0
-        reading_rec_num = 0
+        
         self.adding_page.recs = []
         self.index_page.recs = []
         self.overflow_page.recs = []
@@ -443,61 +464,58 @@ class Manager:
         self.adding_page_num = 0
         self.adding_to_overflow = 0
 
-
-        temp_adding_page = Page()
-        self.get_page_from_file(reading_page_num, old_data_file, temp_adding_page)
-        rec = temp_adding_page.recs[reading_rec_num]
-
-        while rec != None:
-            while rec.overflow != None:
-                self.add(rec.key)
-                overflow, rec = self.get_overflow_from_rec_from_overflow(rec.overflow, 1)
-            self.add(rec.key)
-
-            reading_rec_num += 1
-            if reading_rec_num == b:
-                reading_rec_num = 0
-                reading_page_num += 1
-                self.get_page_from_file(reading_page_num, old_data_file, temp_adding_page)
-            if temp_adding_page.len() > reading_rec_num:
-                rec = temp_adding_page.recs[reading_rec_num]
-            else:
+        while True:
+            temp_adding_page = Page()
+            self.get_page_from_file(reading_page_num, old_data_file, temp_adding_page)
+            
+            if temp_adding_page.len() == 0:
                 break
-        self.overflow_page.recs = []
-        self.overflow_page_num = 0
-        self.overflow_pages = 1
+                
+            for rec in temp_adding_page.recs:
+                self.add(rec.key, limit=b-2)
+                
+                curr_rec = rec
+                while curr_rec.overflow is not None:
+                    overflow_rec = self.get_old_overflow_rec(curr_rec.overflow, old_overflow_handle)
+                    if overflow_rec:
+                        self.add(overflow_rec.key, limit=b-2)
+                        curr_rec = overflow_rec
+                    else:
+                        break 
+            
+            reading_page_num += 1
 
         self.push()
 
         self.data_file.close()
         self.index_file.close()
-        old_data_file.close()
-        old_index_file.close()
         self.overflow_file.close()
+        
+        old_data_file.close()
+        old_overflow_handle.close()
 
+        if os.path.exists('data.txt'): os.remove('data.txt')
+        if os.path.exists('index.txt'): os.remove('index.txt')
+        if os.path.exists('overflow.txt'): os.remove('overflow.txt')
+        
         os.rename('new_data.txt', 'data.txt')
         os.rename('new_index.txt', 'index.txt')
+        os.rename('new_overflow.txt', 'overflow.txt')
 
         self.data_file = open('data.txt', 'r+')
         self.index_file = open('index.txt', 'r+')
-        self.overflow_file = open('overflow.txt', 'w+')
+        self.overflow_file = open('overflow.txt', 'r+')
     
-    def experiment(self, n_recs, plus):
+    def experiment(self, n_recs, plus = 0):
         arr = [i for i in range(1+plus, n_recs+1+plus)]
         random.shuffle(arr)
         for i in arr:
             self.add(i)
         self.push()
 
-
 start = time.time()
 m = Manager()
-m.experiment(200, 0)
+m.experiment(300)
 m.reorganize()
-# m.experiment(200, 200)
-# m.reorganize()
-# m.experiment(200, 400)
-# m.reorganize()
 end = time.time()
 print(f'program execution time = {end-start}')
-
