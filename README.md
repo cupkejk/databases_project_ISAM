@@ -62,7 +62,7 @@ The system includes a built-in experiment module to visualize the trade-offs of 
 
 ---
 
-## 🛠 Project Structure
+## Project Structure
 * Record / IndexRecord: Defines the data serialization and deserialization.
 * Page / IndexPage: Manages blocks of records and "dirty" states for writing.
 * Manager: The core engine handling file I/O, search logic, and reorganization.
