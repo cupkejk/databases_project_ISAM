@@ -1,475 +1,855 @@
-import matplotlib.pyplot as plt  # biblioteka do wykresow
-from random import random
+#record 8-key space 9.9+space*4-vec space 8-overflow space 1-deleted
+import random
 import os
-import math
-N_DIMENSIONAL_VECTOR = 4  # wymiar wektora danych
-FILES = {1:'data.txt', 2:'runs.txt', 3:'out.txt'}  # nazwy plikow roboczych
-RECORDS = 20000  # domyslna liczba rekordow
-VECTOR_DIMENSION_STR_LEN = 22  # dlugosc pola tekstowego
-EMPTY_VECTOR = (((('-'*VECTOR_DIMENSION_STR_LEN) + ' ')) * (N_DIMENSIONAL_VECTOR - 1)) + '-'*VECTOR_DIMENSION_STR_LEN
+import time
+import matplotlib.pyplot as plt
 
-def cmp(a, b):  # funkcja porownujaca wektory
-    vec_a = Vector()
-    vec_a.from_str(a)
-    vec_b = Vector()
-    vec_b.from_str(b)
-    a_mag = vec_a.mag()  # pobranie dlugosci a
-    b_mag = vec_b.mag()  # pobranie dlugosci b
-    if a_mag > b_mag: return 1
-    elif a_mag < b_mag: return -1
-    else: return 0
+b = 4
+NORMAL = 'normal'
+OVERFLOW = 'overflow'
 
-def my_key(a):  # klucz sortowania
-    vec_a = Vector()
-    vec_a.from_str(a)
-    return vec_a.mag()  # zwraca dlugosc wektora
+REC_LEN_WITHOUT_NL = 99
+REC_LEN_WITH_NL = 100 
 
-def str_to_vec(text):  # konwersja string na obiekt
-    vec = Vector()
-    vec.from_str(text)
-    return vec
+class Record:
+    def __init__(self, key):
+        self.vec = []
+        self.key = key
+        self.overflow = None
+        self.deleted = 0
+    
+    def random(self, key, overflow):
+        self.vec = []
+        for i in range(4):
+            self.vec.append(random.random()*100)
+        self.key = key
+        self.overflow = overflow
+        self.deleted = 0
+        
+    def str_to_rec(self, data):
+        try:
+            self.key = int(data[0:8])
+            self.vec = []
+            for i in range(9, 89, 20):
+                num = data[i:i+19]
+                self.vec.append(float(num))
+            overflow = data[89:97]
+            if overflow[0] == 'x': self.overflow = None
+            else: self.overflow = int(overflow)
+            if len(data) > 98: self.deleted = int(data[98])
+            else: self.deleted = 0
+        except ValueError:
+            self.key = 0
+            self.deleted = 1
 
-def random_vec():  # generuje losowy wektor
-    vec = Vector()
-    vec.random()
-    return vec
+    def __str__(self):
+        key_str = str(self.key)
+        rec_str = key_str
+        for i in range(9 - len(key_str)): rec_str = rec_str + ' '
+        for i in range(4): rec_str = rec_str + f'{self.vec[i]:19.9f}' + ' '
+        
+        if self.overflow == None: rec_str = rec_str + 'x       '
+        else:
+            overflow_str = str(self.overflow)
+            rec_str = rec_str + overflow_str
+            for i in range(8-len(overflow_str)): rec_str = rec_str + ' '
+        
+        rec_str = rec_str + ' ' + str(self.deleted)
+        return rec_str + '\n'
 
-def file_index(page_id, b):  # oblicza offset w pliku
-    start = page_id*b*(N_DIMENSIONAL_VECTOR*VECTOR_DIMENSION_STR_LEN+N_DIMENSIONAL_VECTOR)
-    reading = b*8
-    return start, reading
+class IndexRecord:
+    def __init__(self, key, page):
+        self.key = key
+        self.page = page
 
-class Vector:  # klasa reprezentujaca wektor
+    def str_to_rec(self, data):
+        if len(data) < 18: return
+        try:
+            self.key = int(data[0:8])
+            self.page = int(data[9:17])
+        except: pass
+    
+    def __str__(self):
+        key_str = str(self.key)
+        page_str = str(self.page)
+        if len(key_str) < 8: key_str = key_str + (' ' * (8 - len(key_str)))
+        if len(page_str) < 8: page_str = page_str + (' ' * (8 - len(page_str)))
+        return key_str + ' ' + page_str + '\n'
+
+class Page:
     def __init__(self):
-        self.vec = [None for _ in range(N_DIMENSIONAL_VECTOR)]
+        self.recs = []
+        self.dirty = False
     
-    def random(self):  # losowanie skladowych
-        self.vec = [(random()-0.5)*100 for _ in range(N_DIMENSIONAL_VECTOR)]
-
-    def __str__(self):  # reprezentacja tekstowa
-        if self.vec[0] == None:
-            return EMPTY_VECTOR
-        vec_str = ''
-        for i in range(N_DIMENSIONAL_VECTOR):
-            vec_str += f'{float(self.vec[i]):{VECTOR_DIMENSION_STR_LEN}.{VECTOR_DIMENSION_STR_LEN//2}f}' + ' ' 
-        return vec_str[0:-1]
-
-    def from_str(self, text):  # parsowanie ze stringa
-        if not text or text == '\n' or text == EMPTY_VECTOR+'\n':
-            self.vec = [None for _ in range(N_DIMENSIONAL_VECTOR)]
-            return
-        for i in range(N_DIMENSIONAL_VECTOR):
-            self.vec = [float(str) for str in text.strip().split()]
+    def data_to_page(self, data):
+        self.recs = []
+        self.dirty = False
+        if not data: return
+        for line in data:
+            if not line or line[0] == '-': continue
+            rec = Record(0)
+            rec.str_to_rec(line)
+            self.recs.append(rec)
     
-    def empty(self):  # czyszczenie wektora
-        self.vec = [None for _ in range(N_DIMENSIONAL_VECTOR)]
-    
-    def mag(self):  # obliczanie dlugosci euklidesowej
-        if self.vec[0] == None:
-            return float('inf')
-        sum = 0
-        for num in self.vec:
-            sum += num**2
-        sum = sum**(1/2)
-        return sum
-
-
-
-class Page:  # klasa strony w pamieci
-    def __init__(self, b = 10):
-        self.b = b  # rozmiar bufora
-        self.records = [Vector() for _ in range(self.b)]
-        self.n_records = 0
-        self.is_empty = True
-        self.index = 0
-
-    def read(self):  # odczyt rekordu ze strony
-        if str(self.records[self.index]) == '': return ''
-        ret = str(self.records[self.index]) + '\n'
-        self.index += 1
-        if(self.index >= self.b):
-            self.is_empty = True
-            self.index = 0
-        return ret
-    
-    def get(self):  # podglad rekordu
-        return str(self.records[self.index]) + '\n'
-    
-    def write(self, record):  # zapis do strony
-        self.records[self.n_records].from_str(record)
-        self.n_records+=1
-    
-    def isFull(self):  # czy strona pelna
-        if self.n_records >= self.b: return True
-        return False
-    
-    def isEmpty(self):  # czy strona pusta
-        return self.is_empty
-    
-    def empty(self):  # czyszczenie strony
-        self.n_records = 0
-        self.is_empty = True
-        self.index = 0
-        for i in range(len(self.records)):
-            self.records[i].empty()
-
-    def data_to_page(self, data):  # zaladowanie danych z listy
-        record = data[0]
-        i = 0
-        while i < self.b and record:
-            record = data[i]
-            self.records[i].from_str(record)
-            i+=1
-        while i < self.b:
-            self.records[i].from_str('')
-            i+=1
-        self.is_empty = False
-        self.index = 0
-    
-    def page_to_data(self):  # zrzut strony do listy
-        data = []
-        for i in range(len(self.records)):
-            record = str(self.records[i]) + '\n'
-            data.append(record)
+    def page_to_data(self):
+        data = [str(rec) for rec in self.recs]
+        pad_line = '-' * REC_LEN_WITHOUT_NL + '\n'
+        for i in range(len(data)):
+            if data[i] == 'None': data[i] = pad_line
+        while len(data) < b: data.append(pad_line)
         return data
-
-class FileManager:  # zarzadzanie plikami i buforami
-    def __init__(self, b = 10, n = 10):
-        self.b = b
-        self.n = n
-        self.buffers = []
-        self.disk_reads = 0  # licznik odczytow
-        self.disk_writes = 0  # licznik zapisow
-        self.read_buffer = Page(b)
-        self.write_buffer = Page(b)
-        self.read_page = 0
-        self.write_page = 0
-        self.last_read_file = None
-        self.last_write_file = None
-        self.run_pages = []
-        self.new_run_pages = []
-
-    def read(self, file, page_id = None):  # odczyt logiczny
-        if self.last_read_file == None:
-            self.last_read_file = file
-        if self.last_read_file != file:
-            self.last_read_file = file
-            self.read_page = 0
-        if self.read_buffer.isEmpty() == False:
-            return self.read_buffer.read()
-        self.read_file(file, page_id)
-        return self.read_buffer.read()
-
-    def read_file(self, file, page_id = None):  # odczyt fizyczny z dysku
-        self.disk_reads += 1  # inkrementacja odczytow
-        if page_id == None:
-            index, reading = file_index(self.read_page, self.b)
+    
+    def add(self, rec, type):
+        if self.len() >= b: return -1
+        if type == NORMAL:
+            insert_idx = len(self.recs)
+            for i in range(len(self.recs)):
+                if self.recs[i].key > rec.key:
+                    insert_idx = i
+                    break
+            self.recs.insert(insert_idx, rec)
         else:
-            index, reading = file_index(page_id, self.b)
-        file.seek(index)
-        data = []
-        for i in range(self.b):
-            line = file.readline()
-            data.append(line)
-        self.read_buffer.data_to_page(data)
-        self.read_page += 1
+            self.recs.append(rec)
+        self.dirty = True
+        return self.len() - 1
     
-    def write(self, file, record):  # zapis logiczny
-        if self.last_write_file == None:
-            self.last_write_file = file
-        if self.last_write_file != file:
-            self.last_write_file = file
-            self.write_page = 0
-        written = self.write_page
+    def len(self):
+        return sum(1 for rec in self.recs if rec is not None)
+
+class IndexPage:
+    def __init__(self):
+        self.recs = []
+        self.dirty = False
+    
+    def data_to_page(self, data):
+        self.recs = []
+        self.dirty = False
+        if not data: return 
+        for line in data:
+            if not line or line[0] == '-': continue
+            rec = IndexRecord(None, None)
+            rec.str_to_rec(line)
+            self.recs.append(rec)
+    
+    def page_to_data(self):
+        data = [str(rec) for rec in self.recs]
+        pad = '-'*17+'\n'
+        while len(data) < b: data.append(pad)
+        return data
+    
+    def add(self, rec):
+        if self.len() >= b: return -1
+        self.recs.append(rec)
+        self.dirty = True
+        return 0
+    
+    def len(self):
+        return sum(1 for rec in self.recs if rec is not None)
+
+class Manager:
+    def __init__(self, alpha=0.5, reorg_threshold=0.4):
+        self.alpha = alpha
+        self.reorg_threshold = reorg_threshold
         
-        self.write_buffer.write(record)
-        if self.write_buffer.isFull():
-            self.write_file(file)
-            self.write_buffer.empty()
+        self.data_file = open('data.txt', 'w+')
+        self.index_file = open('index.txt', 'w+')
+        self.overflow_file = open('overflow.txt', 'w+')
+        self.adding_page_num = 0
+        self.adding_pages = 1
+        self.adding_page = Page()
+        self.index_page_num = 0
+        self.index_pages = 1
+        self.index_page = IndexPage()
+        self.overflow_page_num = 0
+        self.overflow_pages = 1
+        self.overflow_page = Page()
+        self.temp_index_page_num = 0
+        self.temp_index_num = 0
+        self.adding_to_overflow = 0
         
-        return written
+        self.reads = 0
+        self.writes = 0
+        
+        self.add(0)
+        self.reset_counters()
+
+    def reset_counters(self):
+        self.reads = 0
+        self.writes = 0
+
+    def for_seek(self, page): return REC_LEN_WITH_NL * b * page
+    def for_seek_index(self, page): return 18 * b * page
     
-    def write_file(self, file = None):  # zapis fizyczny na dysk
-        data = self.write_buffer.page_to_data()
-        if file == None:
-            return data
-        self.disk_writes += 1  # inkrementacja zapisow
-        self.write_page += 1
-        for record in data:
-            file.write(record)
-    
-    def dump(self, file = None):  # oproznienie bufora zapisu
-        if self.write_buffer.records[0].vec[0] != None:
-            self.write_file(file)
-        else: return self.write_file()
-        self.write_buffer.empty()
+    def print_structure(self):
+        print("\n" + "#"*50)
+        print(" PHYSICAL STRUCTURE DUMP (Internal Representation)")
+        print(f" Primary Pages: {self.adding_pages}, Overflow Pages: {self.overflow_pages}")
+        print(f" Alpha: {self.alpha}, Reorg Threshold: {self.reorg_threshold}")
+        print("#"*50)
+        self.print_index_file()
+        self.print_data_file()
+        self.print_overflow_file()
+        print("#"*50 + "\n")
 
-    def setup_buffers(self):  # przygotowanie buforow
-        self.buffers = [Page(self.b) for _ in range(self.n)]
-    
-    def load_buffers(self, runs_file, merging):  # ladowanie serii do buforow
-        self.read_buffer.empty()
-        for i in range(len(merging)):
-            buffer = self.buffers[i]
-            if buffer.isEmpty():
-                if len(self.run_pages[merging[i]]):
-                    page_id = self.run_pages[merging[i]][0]
-                else:
-                    continue
-                self.run_pages[merging[i]].remove(page_id)
-                data = []
-                for j in range(self.b):
-                    record = self.read(runs_file, page_id)
-                    data.append(record)
-                buffer.data_to_page(data)
-    
-    def get_smallest(self):  # wybiera najmniejszy element
-        smallest_index = -1
-        smallest_mag = float('inf')
-        for i in range(len(self.buffers)):
-            if self.buffers[i].isEmpty():
-                continue
-            num = self.buffers[i].get()
-            num = my_key(num)
-            if num < smallest_mag:
-                smallest_mag = num
-                smallest_index = i
-        if smallest_index == -1: return -1
-        record = self.buffers[smallest_index].read()
-        return record
+    def browse_sorted(self):
+        print("\n" + "="*50)
+        print(" LOGICAL SEQUENCE (Sorted by Key)")
+        print("="*50)
 
-
-
-
-
+        self.push()
+        
+        data_handle = open('data.txt', 'r')
+        overflow_handle = open('overflow.txt', 'r')
+        
+        for p_idx in range(self.adding_pages):
+            page = Page()
+            self.get_page_from_file(p_idx, data_handle, page)
             
-def create_file(n):  # generowanie pliku danych
-    global RECORDS
-    RECORDS = n
-    vec = Vector()
-    with open(FILES[1], 'w') as f:
-        for i in range(RECORDS):
-            vec.random()
-            f.write(str(vec) + '\n')
+            for rec in page.recs:
+                if rec.deleted == 0:
+                    print(f"Main:     {rec.key} | {rec.vec[0]:.2f}...")
+                
+                curr_ptr = rec.overflow
+                while curr_ptr is not None:
+                    ov_rec = self.get_old_overflow_rec(curr_ptr, overflow_handle)
+                    if ov_rec:
+                        if ov_rec.deleted == 0:
+                            print(f"  -> Ov:  {ov_rec.key} | {ov_rec.vec[0]:.2f}...")
+                        curr_ptr = ov_rec.overflow
+                    else:
+                        break
+        
+        data_handle.close()
+        overflow_handle.close()
+        print("="*50 + "\n")
 
-def make_runs(fm):  # tworzenie serii poczatkowych
-    data_file = open(FILES[1], 'r')
-    runs_file = open(FILES[2], 'w')
-    runs = fm.n
-    records_per_run = fm.b*fm.n
-    runs = RECORDS/records_per_run
-    if runs != int(runs):
-        runs = int(runs) + 1
-    runs = int(runs)
-    buffer = [None for _ in range(records_per_run)]
+    def _print_file_by_pages(self, filename, title):
+        self.push() 
+        print(f"\n--- {title} ({filename}) ---")
+        if not os.path.exists(filename): return
 
+        with open(filename, 'r') as f:
+            page_idx = 0
+            while True:
+                lines = []
+                for _ in range(b):
+                    line = f.readline()
+                    if not line: break
+                    lines.append(line)
+                if not lines: break
+                print(f"[Page {page_idx}]")
+                for line in lines: print(line, end='')
+                page_idx += 1
 
-    for run_num in range(runs):
-        fm.run_pages.append([])
+    def print_index_file(self): self._print_file_by_pages('index.txt', 'INDEX FILE')
+    def print_data_file(self): self._print_file_by_pages('data.txt', 'DATA FILE')
+    def print_overflow_file(self): self._print_file_by_pages('overflow.txt', 'OVERFLOW FILE')
 
-        i = 0
-        record = fm.read(data_file)
-        while i < records_per_run and record != EMPTY_VECTOR + '\n' and record != EMPTY_VECTOR:
-            if i == 89 and run_num == 0:
-                pass
-            buffer[i] = record
-            i += 1
-            if i < records_per_run: record = fm.read(data_file)
-        buffer = sorted(buffer, key = my_key)  # sortowanie w pamieci
-        i = 0
-        for item in buffer:
-            if i == 89 and run_num == 9:
-                pass
-            i+=1
-            if item == EMPTY_VECTOR+'\n' or item == EMPTY_VECTOR or item == None: break
-            page_id = fm.write(runs_file, item)
-            if page_id not in fm.run_pages[run_num]:
-                fm.run_pages[run_num].append(page_id)
-        fm.dump(runs_file)
-        buffer = [None for _ in range(records_per_run)]
-    
-    data_file.close()
-    runs_file.close()
-    return len(fm.run_pages)
+    def search(self, key):
+        temp_rec = Record(key)
+        page_num, _ = self.page_to_append(temp_rec)
+        
+        if self.adding_page_num != page_num:
+             self.save_page(self.adding_page_num)
+             self.adding_page_num = page_num
+             self.get_page(self.adding_page_num)
+        
+        if self.adding_page.len() == 0: return None
 
-def merge_runs(fm, merging, runs_file, out_file):  # scalanie pojedynczej grupy
-    fm.setup_buffers()
-    fm.load_buffers(runs_file, merging)
-    num = fm.get_smallest()
-    new_run_pages = []
-    while num != -1:
-        page_id = fm.write(out_file, num)
-        if page_id not in new_run_pages:
-            new_run_pages.append(page_id)
-        fm.load_buffers(runs_file, merging)
-        num = fm.get_smallest()
-    fm.dump(out_file)
-    return new_run_pages
+        for rec in self.adding_page.recs:
+            if rec.key == key:
+                if rec.deleted == 1: return None
+                return rec
+        
+        _, predecessor = self.get_overflow_from_rec(temp_rec)
+        curr_overflow_ptr = predecessor.overflow
+        
+        while curr_overflow_ptr is not None:
+             ov_ptr, ov_rec = self.get_overflow_from_rec_from_overflow(curr_overflow_ptr, False)
+             if ov_rec.key == key:
+                 if ov_rec.deleted == 1: return None
+                 return ov_rec
+             curr_overflow_ptr = ov_rec.overflow
+        return None
 
-def merge_all_runs(fm):  # glowna petla scalania runów
-    run_pages = []
-    merge_list = []
-    runs_file = open(FILES[2], 'r')
-    out_file = open(FILES[3], 'w')
-    for i in range(len(fm.run_pages)):
-        if i % fm.n == 0:
-            merge_list.append([i])
+    def update(self, key, new_vec):
+        temp_rec = Record(key)
+        page_num, _ = self.page_to_append(temp_rec)
+        
+        if self.adding_page_num != page_num:
+             self.save_page(self.adding_page_num)
+             self.adding_page_num = page_num
+             self.get_page(self.adding_page_num)
+        
+        if self.adding_page.len() == 0: return False
+
+        for rec in self.adding_page.recs:
+            if rec.key == key:
+                if rec.deleted == 1: return False
+                rec.vec = new_vec
+                self.adding_page.dirty = True 
+                self.save_page(self.adding_page_num)
+                return True
+        
+        _, predecessor = self.get_overflow_from_rec(temp_rec)
+        curr_overflow_ptr = predecessor.overflow
+        
+        while curr_overflow_ptr is not None:
+             ov_ptr, ov_rec = self.get_overflow_from_rec_from_overflow(curr_overflow_ptr, False)
+             if ov_rec.key == key:
+                 if ov_rec.deleted == 1: return False
+                 ov_rec.vec = new_vec
+                 self.overflow_page.dirty = True
+                 self.save_overflow_page(self.overflow_page_num)
+                 return True
+             curr_overflow_ptr = ov_rec.overflow
+        return False
+
+    def delete(self, key):
+        temp_rec = Record(key)
+        page_num, _ = self.page_to_append(temp_rec)
+        
+        if self.adding_page_num != page_num:
+             self.save_page(self.adding_page_num)
+             self.adding_page_num = page_num
+             self.get_page(self.adding_page_num)
+
+        if self.adding_page.len() == 0: return False
+             
+        for rec in self.adding_page.recs:
+            if rec.key == key:
+                if rec.deleted == 1: return False
+                rec.deleted = 1
+                self.adding_page.dirty = True
+                self.save_page(self.adding_page_num)
+                return True
+            
+        _, predecessor = self.get_overflow_from_rec(temp_rec)
+        curr_ptr = predecessor.overflow
+        
+        while curr_ptr is not None:
+            curr_page_idx = curr_ptr // b
+            curr_rec_idx = curr_ptr % b
+            self.save_overflow_page(self.overflow_page_num)
+            self.overflow_page_num = curr_page_idx
+            self.get_overflow_page(self.overflow_page_num)
+            
+            rec = self.overflow_page.recs[curr_rec_idx]
+            if rec.key == key:
+                if rec.deleted == 1: return False
+                rec.deleted = 1
+                self.overflow_page.dirty = True
+                self.save_overflow_page(self.overflow_page_num)
+                return True
+            curr_ptr = rec.overflow
+        return False
+
+    def add(self, rec_or_key, limit=None, check_exists=True, reorganizing=False):
+        if limit is None:
+            if reorganizing:
+                limit = max(1, int(b * self.alpha))
+            else:
+                limit = b
+
+        if isinstance(rec_or_key, Record):
+            rec = rec_or_key
+            rec.overflow = None
         else:
-            merge_list[i//fm.n].append(i)
-    new_run_pages = []
-    for i in range(len(merge_list)):
-        pages = merge_runs(fm, merge_list[i], runs_file, out_file)
-        new_run_pages.append(pages)
-    fm.run_pages = new_run_pages
-    runs_file.close()
-    out_file.close()
-    os.remove(FILES[2])
-    os.rename(FILES[3], FILES[2])
-    return len(new_run_pages)
+            rec = Record(rec_or_key)
+            rec.random(rec_or_key, None)
+        
+        if not reorganizing: rec.deleted = 0
+
+        if check_exists and not reorganizing:
+            if self.search(rec.key): 
+                print(f"Key {rec.key} already exists.")
+                return
+
+        page, does_next_exist = self.page_to_append(rec)
+        if page != self.adding_page_num:
+            self.save_page(self.adding_page_num)
+            self.adding_page_num = page
+            self.get_page(self.adding_page_num)
+        
+        if self.adding_page.len() >= limit:
+            if reorganizing:
+                self.save_page(self.adding_page_num)
+                self.adding_page_num = page + 1
+                self.get_page(self.adding_page_num)
+                self.adding_pages += 1
+                
+                if self.adding_page.len() == 0:
+                    self.add_index(rec.key, self.adding_page_num)
+                
+                self.adding_page.add(rec, NORMAL)
+                return
+            else:
+                self.add_overflow(rec)
+                
+                dynamic_limit = max(2, int(self.adding_pages * self.reorg_threshold))
+                if self.overflow_pages > dynamic_limit: 
+                    print(f"[AUTO-REORG] Overflow ({self.overflow_pages}pg) > Limit ({dynamic_limit}pg).")
+                    self.reorganize()
+                return
+
+        if self.adding_page.len() == 0:
+            self.add_index(rec.key, self.adding_page_num)
+        
+        if self.adding_page.add(rec, NORMAL) == -1:
+            self.add_overflow(rec)
+        
+        if not reorganizing:
+            dynamic_limit = max(2, int(self.adding_pages * self.reorg_threshold))
+            if self.overflow_pages > dynamic_limit: 
+                print(f"[AUTO-REORG] Overflow limit reached.")
+                self.reorganize()
     
-def sort_runs(fm):  # alternatywne sortowanie
-    fm.setup_buffers()
-    runs_file = open(FILES[2], 'r')
-    out_file = open(FILES[3], 'w')
-    fm.load_buffers(runs_file)
-    num = fm.get_smallest()
-    while num != -1:
-        fm.write(out_file, num)
-        fm.load_buffers(runs_file)
-        num = fm.get_smallest()
-    fm.dump(out_file)
-    runs_file.close()
-    out_file.close()
+    def add_overflow(self, rec):
+        overflow, overflow_rec = self.get_overflow_from_rec(rec)
+        if overflow == None:
+            adding = self.overflow_page.add(rec, OVERFLOW)
+            while adding == -1:
+                self.save_overflow_page(self.overflow_page_num)
+                self.overflow_page_num = self.overflow_pages - 1
+                self.get_overflow_page(self.overflow_page_num)
+                adding = self.overflow_page.add(rec, OVERFLOW)
+                if adding == -1: self.overflow_pages += 1
+            overflow_rec.overflow = adding + self.overflow_page_num * b
+            self.adding_page.dirty = True 
+        else:
+            new_overflow, new_overflow_rec = self.get_overflow_from_rec_from_overflow(overflow, 0)
+            last_overflow = overflow
+            last_overflow_rec = overflow_rec
+            i = 0
+            if new_overflow_rec.key > rec.key: new_overflow = None
+            while new_overflow != None:
+                last_overflow = overflow
+                overflow = new_overflow
+                last_overflow_rec = overflow_rec
+                overflow_rec = new_overflow_rec
+                new_overflow, new_overflow_rec = self.get_overflow_from_rec_from_overflow(overflow, 0)
+                i+=1
+                if new_overflow_rec.key > rec.key: break
+            if new_overflow_rec.key > rec.key:
+                if self.get_page_from_overflow(last_overflow) != self.overflow_page_num:
+                    self.save_overflow_page(self.overflow_page_num)
+                    self.overflow_page_num = self.get_page_from_overflow(last_overflow)
+                    self.get_overflow_page(self.overflow_page_num)
+                new_overflow_rec = self.overflow_page.recs[last_overflow%b]
+                if i == 0:
+                    new_overflow_rec = last_overflow_rec
+                    self.adding_page.dirty = True
+                else:
+                    self.overflow_page.dirty = True
+
+            if new_overflow_rec.overflow != None:
+                rec.overflow = new_overflow_rec.overflow
+            new_overflow_rec.overflow = self.adding_to_overflow
+            self.overflow_page.dirty = True
+
+            adding = self.overflow_page.add(rec, OVERFLOW)
+            while adding == -1:
+                self.save_overflow_page(self.overflow_page_num)
+                self.overflow_page_num = self.overflow_pages - 1
+                self.get_overflow_page(self.overflow_page_num)
+                adding = self.overflow_page.add(rec, OVERFLOW)
+                if adding == -1: self.overflow_pages += 1
+        self.adding_to_overflow += 1
+
+    def get_page_from_overflow(self, overflow): return overflow//b
+            
+    def get_overflow_from_rec_from_overflow(self, overflow, reorganizing):
+        overflow_page = overflow//b
+        overflow_index = overflow%b
+        if not reorganizing: self.save_overflow_page(self.overflow_page_num)
+        self.overflow_page_num = overflow_page
+        self.get_overflow_page(self.overflow_page_num)
+        return self.overflow_page.recs[overflow_index].overflow, self.overflow_page.recs[overflow_index]
+
+    def get_overflow_from_rec(self, rec):
+        last_rec = None
+        for data_rec in self.adding_page.recs:
+            if data_rec.key > rec.key:
+                if last_rec == None: pass
+                return last_rec.overflow, last_rec
+            last_rec = data_rec
+        if last_rec == None:
+            return self.adding_page.recs[-1].overflow, self.adding_page.recs[-1]
+        return last_rec.overflow, last_rec
+
+    def add_index(self, key, page):
+        index_rec = IndexRecord(key, page)
+        if self.index_page.add(index_rec) == -1:
+            self.save_index_page(self.index_page_num)
+            self.index_page_num += 1
+            self.index_pages += 1
+            self.index_page.recs = []
+            self.index_page.add(index_rec)
     
-def test_if_sorted():  # weryfikacja wyniku
-    data = []
-    with open('out.txt', 'r') as f:
-        line = f.readline()
-        while line:    
-            data.append(my_key(line))
-            line = f.readline()
-    last = data[0]
-    for dat in data:
-        if dat < last:
-            print("WRONGGGGGGG!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        last = dat
-
-def file_contents(file_name):  # wyswietla zawartosc pliku
-    with open(file_name, 'r') as f:
-        file = f.read()
-        print(file)
-
-def from_keyboard():  # odczyt z klawiatury
-    vec_str = input("")
-    if vec_str == 'q': return vec_str
-    vec = Vector()
-    vec.from_str(vec_str)
-    return vec
-
-def create_file_choose():  # menu wyboru danych
-    global RECORDS
-    print("How do you want to generate the data for sorting?\n1. From keyboard\n2. Automatically\n3. Get them from a file")
-    option = input()
-    while int(option) != 1 and int(option) != 2 and int(option) != 3:
-        print("INCORRECT OPTION! CHOOSE AGAIN:")
-        option = input()
+    def page_to_append(self, rec):
+        self.save_index_page(self.index_page_num)
+        self.temp_index_page_num = 0
+        self.temp_index_num = 0
+        last_page = None
+        returning = None
+        index_rec = self.get_next_index_rec()
+        while index_rec != None:
+            if index_rec.key > rec.key:
+                returning = last_page, True
+                break
+            last_page = index_rec.page
+            index_rec = self.get_next_index_rec()
+        self.get_index_page(self.index_page_num)
+        if returning: return returning
+        if last_page == None: return 0, False
+        return last_page, False
     
-    if int(option) == 1:
-        RECORDS = 0
-        print("write a 4-dimensional vector. (example: -10.8 0.444 1.2 10.83):")
-        print("(when u wanna stop adding vectors just write \"q\")")
-        with open(FILES[1], 'w') as f:
-            vec = from_keyboard()
-            while vec != 'q':
-                RECORDS += 1
-                f.write(str(vec) + '\n')
-                vec = from_keyboard()
-    elif int(option) == 2:
-        print("How much records do you wanna generate?:")
-        n_records = int(input())
-        create_file(n_records)
-    else:
-        print("Type the name of the file:")
-        file_name = input()
-        FILES[1] = file_name
-        RECORDS = 0
-        with open(FILES[1], 'r') as f:
-            line = f.readline()
-            while line:
-                RECORDS += 1
-                line = f.readline()
-
-def single_sorting():  # uruchomienie sortowania
-    global RECORDS
-    create_file_choose()
-    print('File contents before sorting:')
-    file_contents(FILES[1])
-    fm = FileManager(b = 10, n = 10)
-    n_runs = make_runs(fm)
-    stages = 0
-    while n_runs != 1:
-        stages += 1
-        n_runs = merge_all_runs(fm)
-        print(f'File contents after stage {stages}:')
-        file_contents(FILES[2])
-    os.rename(FILES[2], FILES[3])
-
-    print('File contents after sorting:')
-    file_contents(FILES[3])
-    print(f'NUMBER OF RECORDS: {RECORDS}')
-    print(f'TOTAL DISK READS: {fm.disk_reads}')
-    print(f'TOTAL DISK WRITES: {fm.disk_writes}')
-    print(f'TOTAL COST: {fm.disk_reads + fm.disk_writes}')
-    theoretical = round(2*(RECORDS/(fm.b*math.log(fm.n, 2)))*math.log(RECORDS/fm.b, 2))
-    print(f'THEORETICAL COST: {theoretical}')
-    print(f'TOTAL STAGES OF SORTING: {stages}')
-    print(f'THEORETICAL NUMBER OF STAGES: {math.ceil(math.log(RECORDS/fm.b, fm.n))-1}')
-
-def test(n = 1000):  # funkcja testowa
-    global RECORDS
-    RECORDS = n
-    create_file(n)
-    fm = FileManager(b = 10, n = 10)
-    n_runs = make_runs(fm)
-    stages = 0
-    while n_runs != 1:
-        stages += 1
-        n_runs = merge_all_runs(fm)
-    os.rename(FILES[2], FILES[3])
-
-    print(f'NUMBER OF RECORDS: {RECORDS}')
-    print(f'TOTAL DISK READS: {fm.disk_reads}')
-    print(f'TOTAL DISK WRITES: {fm.disk_writes}')
-    print(f'TOTAL COST: {fm.disk_reads + fm.disk_writes}')
-    theoretical = round(2*(RECORDS/(fm.b*math.log(fm.n, 2)))*math.log(RECORDS/fm.b, 2))
-    print(f'THEORETICAL COST: {theoretical}')
-    print(f'TOTAL STAGES OF SORTING: {stages}')
-    print(f'THEORETICAL NUMBER OF STAGES: {math.ceil(math.log(RECORDS/fm.b, fm.n))-1}')
-    print()
-    return [fm.disk_reads + fm.disk_writes, theoretical]
-
-def tests():  # generowanie wykresow
-    records = [100, 1000, 5000, 20000, 50000]
-    costs = []
-
-    for record_n in records:
-        cost = test(record_n)
-        costs.append([record_n, cost[0], cost[1]])
+    def get_next_index_rec(self):
+        if self.temp_index_num == 0: self.get_index_page(self.temp_index_page_num)
+        if self.index_page.len() > self.temp_index_num:
+            rec = self.index_page.recs[self.temp_index_num]
+        else: return None
+        self.temp_index_num += 1
+        if self.temp_index_num == b:
+            self.temp_index_num = 0
+            self.temp_index_page_num += 1
+        return rec
+        
+    def get_index_page(self, page):
+        i = self.for_seek_index(page)
+        self.index_file.seek(i)
+        data = []
+        for i in range(b): data.append(self.index_file.readline())
+        self.index_page.data_to_page(data)
     
-    y = [cost[0] for cost in costs]
-    x1 = [cost[1] for cost in costs]
-    x2 = [cost[2] for cost in costs]
+    def get_page(self, page):
+        i = self.for_seek(page)
+        self.data_file.seek(i)
+        data = []
+        for i in range(b): data.append(self.data_file.readline())
+        self.adding_page.data_to_page(data)
+        self.reads += 1
+    
+    def get_page_from_file(self, page_num, file, page):
+        i = self.for_seek(page_num)
+        file.seek(i)
+        data = []
+        for i in range(b):
+            line = file.readline()
+            if not line: break
+            data.append(line)
+        while len(data) < b: data.append('')
+        page.data_to_page(data)
+        self.reads += 1
+    
+    def get_old_overflow_rec(self, overflow_ptr, file_handle):
+        page = overflow_ptr // b
+        idx = overflow_ptr % b
+        seek_pos = self.for_seek(page)
+        file_handle.seek(seek_pos)
+        lines = []
+        for _ in range(b): lines.append(file_handle.readline())
+        temp_page = Page()
+        temp_page.data_to_page(lines)
+        if idx < len(temp_page.recs): return temp_page.recs[idx]
+        return None
 
-    fix, ax = plt.subplots()
-    plt.title('Cost vs Number of Records')
+    def get_overflow_page(self, page):
+        i = self.for_seek(page)
+        self.overflow_file.seek(i)
+        data = []
+        for i in range(b): data.append(self.overflow_file.readline())
+        self.overflow_page.data_to_page(data)
+        self.reads += 1
+    
+    def save_overflow_page(self, page):
+        if self.overflow_page.dirty == False: return
+        data = self.overflow_page.page_to_data()
+        i = self.for_seek(page)
+        self.overflow_file.seek(i)
+        for line in data: self.overflow_file.write(line)
+        self.writes += 1
+        self.overflow_page.dirty = False
+    
+    def save_index_page(self, page):
+        if self.index_page.dirty == False: return
+        data = self.index_page.page_to_data()
+        i = self.for_seek_index(page)
+        self.index_file.seek(i)
+        for line in data: self.index_file.write(line)
+        self.writes += 1
+        self.index_page.dirty = False
+    
+    def save_page(self, page):
+        if self.adding_page.dirty == False: return
+        data = self.adding_page.page_to_data()
+        i = self.for_seek(page)
+        self.data_file.seek(i)
+        for line in data: self.data_file.write(line)
+        self.writes += 1
+        self.adding_page.dirty = False
+    
+    def push(self):
+        self.save_page(self.adding_page_num)
+        self.save_index_page(self.index_page_num)
+        self.save_overflow_page(self.overflow_page_num)
 
-    ax.plot(x1, y, label = 'Actual')
-    ax.plot(x2, y, label = 'Theoretical')
+    def reorganize(self):
+        print(f"\n*** REORGANIZATION STARTED (Alpha={self.alpha}) ***")
+        self.push()
+        old_data_file = self.data_file
+        old_overflow_handle = open('overflow.txt', 'r')
+        
+        self.data_file = open('new_data.txt', 'w+')
+        self.index_file = open('new_index.txt', 'w+')
+        self.overflow_file = open('new_overflow.txt', 'w+')
 
-    plt.xlabel('Cost')
-    plt.ylabel('Number of Records')
-    plt.grid(True, linestyle=':', alpha=0.7)
-    plt.legend()
-    plt.tight_layout()
+        reading_page_num = 0
+        
+        self.adding_page.recs = []
+        self.index_page.recs = []
+        self.overflow_page.recs = []
+        self.overflow_pages = 1
+        self.index_pages = 1
+        self.adding_pages = 1
+        self.overflow_page_num = 0
+        self.index_page_num = 0
+        self.adding_page_num = 0
+        self.adding_to_overflow = 0
 
-    plt.show()
+        while True:
+            temp_adding_page = Page()
+            self.get_page_from_file(reading_page_num, old_data_file, temp_adding_page)
+            if temp_adding_page.len() == 0: break
+                
+            for rec in temp_adding_page.recs:
+                next_overflow_ptr = rec.overflow 
+                if rec.deleted == 0:
+                    rec.overflow = None 
+                    self.add(rec, limit=None, check_exists=False, reorganizing=True) 
+                
+                curr_ptr = next_overflow_ptr
+                while curr_ptr is not None:
+                    overflow_rec = self.get_old_overflow_rec(curr_ptr, old_overflow_handle)
+                    if overflow_rec:
+                        next_overflow_ptr = overflow_rec.overflow 
+                        if overflow_rec.deleted == 0:
+                            overflow_rec.overflow = None
+                            self.add(overflow_rec, limit=None, check_exists=False, reorganizing=True) 
+                        curr_ptr = next_overflow_ptr
+                    else: break 
+            reading_page_num += 1
+
+        self.push()
+        self.data_file.close()
+        self.index_file.close()
+        self.overflow_file.close()
+        old_data_file.close()
+        old_overflow_handle.close()
+
+        if os.path.exists('data.txt'): os.remove('data.txt')
+        if os.path.exists('index.txt'): os.remove('index.txt')
+        if os.path.exists('overflow.txt'): os.remove('overflow.txt')
+        
+        os.rename('new_data.txt', 'data.txt')
+        os.rename('new_index.txt', 'index.txt')
+        os.rename('new_overflow.txt', 'overflow.txt')
+
+        self.data_file = open('data.txt', 'r+')
+        self.index_file = open('index.txt', 'r+')
+        self.overflow_file = open('overflow.txt', 'r+')
+        print("*** REORGANIZATION COMPLETE ***\n")
+    
+    def run_test_file(self, filename):
+        if not os.path.exists(filename):
+            print("File not found.")
+            return
+
+        with open(filename, 'r') as f:
+            for line in f:
+                parts = line.strip().split()
+                if not parts: continue
+                
+                cmd = parts[0].upper()
+                self.reset_counters()
+                
+                try:
+                    if cmd == 'A': # Add: A 10
+                        key = int(parts[1])
+                        print(f"CMD: Add {key}")
+                        self.add(key)
+                    elif cmd == 'D': # Delete: D 10
+                        key = int(parts[1])
+                        print(f"CMD: Delete {key}")
+                        if self.delete(key): print("Deleted.")
+                        else: print("Not Found.")
+                    elif cmd == 'U': # Update: U 10 1.1 2.2 3.3 4.4
+                        key = int(parts[1])
+                        vec = [float(x) for x in parts[2:]]
+                        print(f"CMD: Update {key}")
+                        if self.update(key, vec): print("Updated.")
+                        else: print("Not Found.")
+                    elif cmd == 'S': # Search: S 10
+                        key = int(parts[1])
+                        print(f"CMD: Search {key}")
+                        res = self.search(key)
+                        if res: print(f"Found: {res}")
+                        else: print("Not Found.")
+                except Exception as e:
+                    print(f"Error executing line: {line} -> {e}")
+
+                print(f"Disk Operations -> Reads: {self.reads}, Writes: {self.writes}")
+
+    def experiment(self, n_recs):
+        arr = [i for i in range(1, n_recs+1)]
+        random.shuffle(arr)
+        for i in arr: self.add(i)
+
+if __name__ == "__main__":
+    m = Manager(alpha=0.5, reorg_threshold=0.4)
+    print("Database Manager Initialized.")
+
+    while True:
+        print("\n" + "="*30)
+        print("       MAIN MENU")
+        print("="*30)
+        print("1. Add Record")
+        print("2. Search Record")
+        print("3. Update Record")
+        print("4. Delete Record")
+        print("5. Reorganize Database")
+        print("6. Show Structure (Physical Dump)")
+        print("7. Browse Sorted (Logical View)")
+        print("8. Run Test File")
+        print("9. Configure Experiment (Set Alpha)")
+        print("10. Run an experiment")
+        print("0. Exit")
+        print("="*30)
+
+        choice = input("Choose an option: ").strip()
+        m.reset_counters()
+
+        if choice == '1':
+            try:
+                key = int(input("Enter key (int): "))
+                m.add(key)
+                print(f"Result: Added/Processed.")
+            except ValueError: print("Invalid input.")
+        elif choice == '2':
+            try:
+                key = int(input("Enter key: "))
+                res = m.search(key)
+                if res: print(f"Result: {res}")
+                else: print("Result: Not Found.")
+            except ValueError: print("Invalid.")
+        elif choice == '3':
+            try:
+                key = int(input("Enter key: "))
+                vec = [float(x) for x in input("Enter 4 floats: ").split()]
+                if m.update(key, vec): print("Result: Updated.")
+                else: print("Result: Failed.")
+            except ValueError: print("Invalid.")
+        elif choice == '4':
+            try:
+                key = int(input("Enter key: "))
+                if m.delete(key): print("Result: Deleted.")
+                else: print("Result: Failed.")
+            except ValueError: print("Invalid.")
+        elif choice == '5':
+            m.reorganize()
+        elif choice == '6':
+            m.print_structure()
+        elif choice == '7':
+            m.browse_sorted()
+        elif choice == '8':
+            fname = input("Enter filename: ")
+            m.run_test_file(fname)
+        elif choice == '9':
+            try:
+                a = float(input("Enter Alpha (0.1 - 1.0): "))
+                t = float(input("Enter Reorg Threshold (e.g. 0.4 for 40%): "))
+                m = Manager(alpha=a, reorg_threshold=t)
+                print("Manager re-initialized with new parameters. DB cleared.")
+            except ValueError: print("Invalid.")
+        elif choice == '10':
+            try:
+                print("1. Add records")
+                print("2. Full experiment")
+                new_choice = input()
+                if new_choice == '1':
+                    n = int(input("Num records: "))
+                    m.experiment(n)
+                elif new_choice == '2':
+                    alphas = [0.25, 0.5, 0.75]
+                    thresholds = [0.2, 0.4, 0.6, 0.8]
+                    operations = []
+                    for threshold in thresholds:
+                        for alpha in alphas:
+                            reads = 0
+                            writes = 0
+                            n = 10
+                            for i in range(n):
+                                m = Manager(alpha=alpha, reorg_threshold=threshold)
+                                m.experiment(200)
+                                reads, writes = m.reads, m.writes
+                            reads, writes = reads/n, writes/n
+                            operations.append([reads, writes])
+                    i = 0
+                    alphas_g = []
+                    thresholds_g = []
+                    reads_g = []
+                    writes_g = []
+                    for threshold in thresholds:
+                        for alpha in alphas:
+                            print(f"Disk Operations for:\nAlpha = {alpha}\nReorganization Threshold = {threshold}\nReads: {operations[i][0]}, Writes: {operations[i][1]}\n")
+                            alphas_g.append(alpha)
+                            thresholds_g.append(threshold)
+                            reads_g.append(operations[i][0])
+                            writes_g.append(operations[i][1])
+                            i += 1
+
+                    unique_thresholds = sorted(list(set(thresholds_g)))
+                    data_by_threshold = {t: {'alphas': [], 'reads': [], 'writes': []} for t in unique_thresholds}
+
+                    for i in range(len(alphas_g)):
+                        t = thresholds_g[i]
+                        data_by_threshold[t]['alphas'].append(alphas_g[i])
+                        data_by_threshold[t]['reads'].append(reads_g[i])
+                        data_by_threshold[t]['writes'].append(writes_g[i])
+
+                    for t in unique_thresholds:
+                        zipped = sorted(zip(data_by_threshold[t]['alphas'], 
+                                            data_by_threshold[t]['reads'], 
+                                            data_by_threshold[t]['writes']))
+                        if zipped:
+                            data_by_threshold[t]['alphas'], data_by_threshold[t]['reads'], data_by_threshold[t]['writes'] = zip(*zipped)
+
+                    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+                    for t in unique_thresholds:
+                        ax1.plot(data_by_threshold[t]['alphas'], data_by_threshold[t]['reads'], marker='o', label=f'Threshold: {t}')
+
+                    ax1.set_title('Disk READ Operations vs Alpha')
+                    ax1.set_xlabel('Alpha')
+                    ax1.set_ylabel('Number of Reads')
+                    ax1.grid(True)
+                    ax1.legend()
+
+                    for t in unique_thresholds:
+                        ax2.plot(data_by_threshold[t]['alphas'], data_by_threshold[t]['writes'], marker='s', label=f'Threshold: {t}')
+
+                    ax2.set_title('Disk WRITE Operations vs Alpha')
+                    ax2.set_xlabel('Alpha')
+                    ax2.set_ylabel('Number of Writes')
+                    ax2.grid(True)
+                    ax2.legend()
+
+                    plt.tight_layout()
+                    plt.show()
+            except ValueError: print("Invalid.")
+        elif choice == '0':
+            m.push()
+            break
+        
+        if choice in ['1','2','3','4','5','10']:
+            print(f"Disk Operations -> Reads: {m.reads}, Writes: {m.writes}")
